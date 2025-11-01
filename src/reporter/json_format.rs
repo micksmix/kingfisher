@@ -196,6 +196,7 @@ mod tests {
             references: vec![],
             validation: None,
             depends_on_rule: vec![],
+            character_requirements: None,
         };
         let rule = Arc::new(Rule::new(syntax));
         Match {
