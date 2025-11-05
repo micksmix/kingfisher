@@ -1004,7 +1004,9 @@ mod test {
     use crate::{
         blob::{Blob, BlobIdMap},
         origin::{Origin, OriginSet},
-        rules::rule::{DependsOnRule, HttpRequest, HttpValidation, RuleSyntax, Validation},
+        rules::rule::{
+            DependsOnRule, HttpRequest, HttpValidation, PatternRequirements, RuleSyntax, Validation,
+        },
     };
 
     proptest! {
@@ -1137,6 +1139,61 @@ mod test {
         );
         Ok(())
     }
+
+    #[test]
+    fn test_pattern_requirements_exclude_words_filters_matches() -> Result<()> {
+        let rules = vec![Rule::new(RuleSyntax {
+            id: "test.exclude".to_string(),
+            name: "exclude words".to_string(),
+            pattern: "(?P<token>prefix[A-Za-z]+)".to_string(),
+            confidence: crate::rules::rule::Confidence::Medium,
+            min_entropy: 0.0,
+            visible: true,
+            examples: vec![],
+            negative_examples: vec![],
+            references: vec![],
+            validation: None,
+            depends_on_rule: vec![],
+            pattern_requirements: Some(PatternRequirements {
+                min_digits: None,
+                min_uppercase: None,
+                min_lowercase: None,
+                min_special_chars: None,
+                special_chars: None,
+                exclude_words: Some(vec!["TEST".to_string()]),
+            }),
+        })];
+
+        let rules_db = RulesDatabase::from_rules(rules)?;
+        let input = b"prefixgood prefixtest";
+        let seen_blobs: BlobIdMap<bool> = BlobIdMap::new();
+        let scanner_pool = Arc::new(ScannerPool::new(Arc::new(rules_db.vsdb.clone())));
+        let mut matcher =
+            Matcher::new(&rules_db, scanner_pool, &seen_blobs, None, false, None, &[], false)?;
+
+        let blob = Blob::from_bytes(input.to_vec());
+        let origin = OriginSet::from(Origin::from_file(PathBuf::from("exclude.txt")));
+
+        let matches = match matcher.scan_blob(&blob, &origin, None, false, false, false)? {
+            ScanResult::New(matches) => matches,
+            ScanResult::SeenWithMatches => {
+                panic!("unexpected scan result: blob should not be considered previously seen with matches")
+            }
+            ScanResult::SeenSansMatches => {
+                panic!("unexpected scan result: blob should not be considered previously seen without matches")
+            }
+        };
+
+        assert_eq!(matches.len(), 1, "exclude_words should drop filtered matches");
+        assert_eq!(
+            matches[0].matching_input,
+            b"prefixgood",
+            "remaining match should be the non-excluded token",
+        );
+
+        Ok(())
+    }
+
 
     // ---------------------------------------------------------------------
     // additional deterministic unit-tests
